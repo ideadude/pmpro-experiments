@@ -26,18 +26,27 @@ Author URI: http://www.strangerstudios.com
 	we define them in a global var.
 */
 global $pmpro_experiments;
-/*
-global $pmpro_experiments;
 $pmpro_experiments = array(
 	1 => array(
-		'name' => 'Experiment_1',	//no spaces or special characters please
-		'entrance' => 'frontpage',
+		'name' => 'Frontpage_1',	//no spaces or special characters please
+		'entrance' => 'frontpage',	//frontpage or slug of page that starts the experiment
+		'urls' => array(			//urls to redirect to
+			'197', '297'
+		),
+		'redirect' => false,		//set to false if you don't want to redirect and just reference the URL/value
+		'status' => 'active'		//set to inactive to disable
+	),
+	2 => array(
+		'name' => 'Pricing_1',	//no spaces or special characters please
+		'entrance' => 'pricing',
 		'urls' => array(
-			'test1', 'test2'
-		)
+			'197', '297'
+		),
+		'redirect' => false,
+		'status' => 'active',
+		'copy' => 'Frontpage_1',//if experiment 'Frontpage_1' has a value, copy it
 	)
 );
-*/
 
 /*
 	Just returning global for now, but will eventually pull these from options/etc
@@ -98,15 +107,31 @@ function pmproex_template_redirect()
 	//see we are entering any experiment
 	foreach($experiments as $experiment)
 	{
-		if($experiment['status'] == 'active')
-		{
+		if(!isset($experiment['status']) || $experiment['status'] == 'active')
+		{			
 			if($experiment['entrance'] == 'frontpage' && is_front_page() || is_page($experiment['entrance']))
-			{
+			{				
 				//check session cookie
-				if(!empty($_COOKIE['pmpro_experiment_' . $experiment['name']]))
+				if(!empty($_COOKIE['pmpro_experiment_' . $experiment['name']]))					
 				{
-					wp_redirect($_COOKIE['pmpro_experiment_' . $experiment['name']]);
-					exit;
+					if(!isset($experiment['redirect']) || $experiment['redirect'] !== false)
+					{
+						wp_redirect($_COOKIE['pmpro_experiment_' . $experiment['name']]);
+						exit;
+					}
+				}
+				elseif(!empty($experiment['copy']) && !empty($_COOKIE['pmpro_experiment_' . $experiment['copy']]))
+				{
+					//save cookie
+					$url = $_COOKIE['pmpro_experiment_' . $experiment['copy']];
+					setcookie('pmpro_experiment_' . $experiment['name'], $url, 0, COOKIEPATH, COOKIE_DOMAIN, false);
+	
+					//redirect					
+					if(!isset($experiment['redirect']) || $experiment['redirect'] !== false)
+					{
+						wp_redirect($url);
+						exit;
+					}
 				}
 				else
 				{
@@ -120,9 +145,12 @@ function pmproex_template_redirect()
 					//save cookie
 					setcookie('pmpro_experiment_' . $experiment['name'], $url, 0, COOKIEPATH, COOKIE_DOMAIN, false);
 	
-					//redirect
-					wp_redirect($url);
-					exit;
+					//redirect					
+					if(!isset($experiment['redirect']) || $experiment['redirect'] !== false)
+					{
+						wp_redirect($url);
+						exit;
+					}
 				}
 	
 			}
