@@ -122,8 +122,13 @@ function pmproex_template_redirect()
 				}
 				elseif(!empty($experiment['copy']) && !empty($_COOKIE['pmpro_experiment_' . $experiment['copy']]))
 				{
-					//save cookie
+					//copy url
 					$url = $_COOKIE['pmpro_experiment_' . $experiment['copy']];
+					
+					//track views
+					pmproex_track($experiment['name'], $url);
+					
+					//save cookie					
 					setcookie('pmpro_experiment_' . $experiment['name'], $url, 0, COOKIEPATH, COOKIE_DOMAIN, false);
 	
 					//redirect					
@@ -240,7 +245,7 @@ function pmpro_report_pmproex_page()
 </h2>
 <?php
 	$stats = get_option('pmpro_experiments_stats', array());
-	//var_dump($stats);
+	//krumo($stats);
 	foreach($stats as $experiment => $stat)
 	{	
 					
