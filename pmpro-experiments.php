@@ -131,6 +131,9 @@ function pmproex_template_redirect()
 					//save cookie					
 					setcookie('pmpro_experiment_' . $experiment['name'], $url, 0, COOKIEPATH, COOKIE_DOMAIN, false);
 	
+					//set cookie for now if we don't redirect
+					$_COOKIE['pmpro_experiment_' . $experiment['name']] = $url;
+	
 					//redirect					
 					if(!isset($experiment['redirect']) || $experiment['redirect'] !== false)
 					{
@@ -149,6 +152,9 @@ function pmproex_template_redirect()
 					
 					//save cookie
 					setcookie('pmpro_experiment_' . $experiment['name'], $url, 0, COOKIEPATH, COOKIE_DOMAIN, false);
+	
+					//set cookie for now if we don't redirect
+					$_COOKIE['pmpro_experiment_' . $experiment['name']] = $url;
 	
 					//redirect					
 					if(!isset($experiment['redirect']) || $experiment['redirect'] !== false)
