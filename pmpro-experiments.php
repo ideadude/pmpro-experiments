@@ -33,14 +33,23 @@ $pmpro_experiments = array(
 		'urls' => array(			//urls to redirect to
 			'197', '297'
 		),
+		'goals' => array(
+			'membership-checkout',
+			'membership-confirmation',
+		),
 		'redirect' => false,		//set to false if you don't want to redirect and just reference the URL/value
-		'status' => 'active'		//set to inactive to disable
+		'status' => 'active',		//set to inactive to disable
+		'copy' => 'Pricing_1',//if experiment 'Frontpage_1' has a value, copy it
 	),
 	2 => array(
 		'name' => 'Pricing_1',	//no spaces or special characters please
 		'entrance' => 'pricing',
 		'urls' => array(
 			'197', '297'
+		),
+		'goals' => array(
+			'membership-checkout',
+			'membership-confirmation',
 		),
 		'redirect' => false,
 		'status' => 'active',
@@ -57,12 +66,28 @@ function pmproex_getExperiments()
 	return $pmpro_experiments;
 }
 
+function pmproex_getExperiment($name)
+{
+	$experiments = pmproex_getExperiments();	
+	
+	if(!empty($experiments))
+	{
+		foreach($experiments as $experiment)
+			if($experiment['name'] == $name)
+				return $experiment;
+	}
+	
+	return false;
+}
+
 function pmproex_getExperimentDescription( $pmpro_experiments_name )
 {
+	$pmpro_experiments_description = "";
+	
 	$experiments = pmproex_getExperiments();
 	foreach($experiments as $experiment)
 	{
-		if($experiment['name'] == $pmpro_experiments_name)
+		if($experiment['name'] == $pmpro_experiments_name && !empty($experiment['description']))
 		{
 			$pmpro_experiments_description = $experiment['description'];
 		}
@@ -73,23 +98,35 @@ function pmproex_getExperimentDescription( $pmpro_experiments_name )
 /*
 	Track views on entrances and URLs
 */
-function pmproex_track($experiment, $url)
+function pmproex_track($experiment, $url, $goal = NULL)
 {
 	$stats = get_option('pmpro_experiments_stats', array());	
-	
+
+	//create experiment element if not there
 	if(empty($stats[$experiment]))
 	{
-		$stats[$experiment] = array('entrances'=>1, $url=>1);
+		$stats[$experiment] = array('entrances'=>0);
+	}
+	
+	if(empty($goal))
+	{
+		//tracking an entrance		
+		$stats[$experiment]['entrances']++;
+		if(empty($stats[$experiment][$url]))
+			$stats[$experiment][$url] = array('entrances'=>0);
+		$stats[$experiment][$url]['entrances']++;
 	}
 	else
 	{
-		$stats[$experiment]['entrances']++;
+		//tracking a goal
 		if(empty($stats[$experiment][$url]))
-			$stats[$experiment][$url] = 0;
-		$stats[$experiment][$url]++;
+			$stats[$experiment][$url] = array('entrances'=>0, $goal=>0);
+		elseif(empty($stats[$experiment][$url][$goal]))
+			$stats[$experiment][$url][$goal] = 0;
+		$stats[$experiment][$url][$goal]++;
 	}
 	
-	//delete_option('pmpro_experiments_stats');
+	//delete_option('pmpro_experiments_stats');		
 	update_option('pmpro_experiments_stats', $stats, 'no');
 }
 
@@ -167,7 +204,32 @@ function pmproex_template_redirect()
 			}
 			else
 			{
-				//maybe redirect from one redirect URL to another if the cookie is set here
+				//check if any goals were met
+				if(!empty($experiment['goals']))
+				{
+					foreach($experiment['goals'] as $goal)
+					{
+						if(is_page($goal))
+						{
+							if(empty($_COOKIE['pmpro_experiment_goal_' . $experiment['name'] . "_" . $goal]))
+							{
+								//get url
+								if(!empty($_COOKIE['pmpro_experiment_' . $experiment['name']]))
+								{
+									$url = $_COOKIE['pmpro_experiment_' . $experiment['name']];
+								
+									//save cookie that we've hit this goal
+									$_COOKIE['pmpro_experiment_goal_' . $experiment['name'] . "_" . $goal] = 1;
+									setcookie('pmpro_experiment_goal_' . $experiment['name'] . "_" . $goal, 1, 0, COOKIEPATH, COOKIE_DOMAIN, false);
+										
+									//track it
+									pmproex_track($experiment['name'], $url, $goal);									
+								}
+							}
+							break;
+						}
+					}
+				}				
 			}
 		}
 	}
@@ -223,6 +285,7 @@ function pmproex_pmpro_email_filter($email)
 }
 add_filter("pmpro_email_filter", "pmproex_pmpro_email_filter", 10, 2);
 
+/*
 function init_test_a()
 {
 	if(!empty($_REQUEST['stats']))
@@ -233,6 +296,7 @@ function init_test_a()
 	}
 }
 add_action('init', 'init_test_a');
+*/
 
 global $pmpro_reports;
 $pmpro_reports['pmproex'] = __('PMPro Experiments', 'pmpro-experiments');
@@ -245,60 +309,111 @@ function pmpro_report_pmproex_widget()
 function pmpro_report_pmproex_page()
 {
 	global $wpdb;
+	
+	$experiments = pmproex_getExperiments();
+	
+	//resetting?
+	if(!empty($_REQUEST['resetall']))
+	{
+		if(wp_verify_nonce($_REQUEST['resetall'], 'pmpro-experiments-resetall'))
+			update_option('pmpro_experiments_stats', array(), 'no');
+	}
 ?>
 <h2>
 	<?php _e('PMPro Experiments', 'pmpro-experiments');?>
 </h2>
 <?php
-	$stats = get_option('pmpro_experiments_stats', array());
-	//krumo($stats);
-	foreach($stats as $experiment => $stat)
-	{	
-					
-		?>
-			<hr />
-			<h3><?php echo $experiment;?></h3>
-			<p><?php echo pmproex_getExperimentDescription($experiment); ?></p>
-			<table class="wp-list-table widefat striped">
-			<thead>
-				<tr>
-					<th>URL</th>
-					<th>Entrances</th>
-					<th>Conversions</th>
-					<th>%</th>
-					<th>Revenue</th>
-				</tr>
-			</thead>
-			<tbody>
-				<?php foreach($stat as $url => $entrances) { ?>
-					<?php if($url == "entrances") continue; ?>
+	$stats = get_option('pmpro_experiments_stats', array());	
+	if(!empty($stats)) 
+	{
+		foreach($stats as $experiment_name => $stat)
+		{
+			$experiment = pmproex_getExperiment($experiment_name);			
+			?>
+				<hr />
+				<h3><?php echo $experiment['name'];?></h3>
+				<p><?php if(!empty($experiment['description'])) echo $experiment['description']; ?></p>
+				<table class="wp-list-table widefat striped">
+				<thead>
 					<tr>
-						<td><?php echo $url;?></td>
-						<td><?php echo $entrances;?></td>
-						<td>
-							<?php
-								$conversions = intval($wpdb->get_var("SELECT COUNT(*) FROM $wpdb->pmpro_membership_orders WHERE status NOT IN('refunded', 'review', 'token', 'error') AND notes LIKE '%Experiment (" . $experiment . "): " . $url . "%'"));
-								echo $conversions;
-							?>
-						</td>
-						<td>
-							<?php
-								echo round((intval($conversions)/intval($entrances))*100, 2) . "%";
-							?>
-						</td>
-						<td>
-							<?php
-								$revenue = $wpdb->get_var("SELECT SUM(total) FROM $wpdb->pmpro_membership_orders WHERE status NOT IN('refunded', 'review', 'token', 'error') AND notes LIKE '%Experiment (" . $experiment . "): " . $url . "%'");
-								echo pmpro_formatPrice($revenue);
-							?>
-						</td>
+						<th>URL</th>
+						<th>Entrances</th>
+						<th>Orders</th>
+						<th>%</th>
+						<?php
+							if(!empty($experiment['goals']))
+							{
+								foreach($experiment['goals'] as $goal)
+								{
+								?>
+								<th><?php echo $goal;?></th>
+								<th>%</th>
+								<?php
+								}
+							}
+						?>						
+						<th>Revenue</th>
 					</tr>
-				<?php } ?>
-			</tbody>
-			</table>
-		<?php		
+				</thead>
+				<tbody>
+					<?php foreach($stat as $url => $entrances) { ?>
+						<?php if($url == "entrances") continue; ?>
+						<tr>
+							<td><?php echo $url;?></td>
+							<td>
+								<?php echo $entrances['entrances']; ?>
+							</td>
+							<td>
+								<?php
+									$conversions = intval($wpdb->get_var("SELECT COUNT(*) FROM $wpdb->pmpro_membership_orders WHERE status NOT IN('refunded', 'review', 'token', 'error') AND notes LIKE '%Experiment (" . $experiment['name'] . "): " . $url . "%'"));
+									echo $conversions;
+								?>
+							</td>
+							<td>
+								<?php
+									echo round((intval($conversions)/intval($entrances['entrances']))*100, 2) . "%";
+								?>
+							</td>
+							<?php
+								if(!empty($experiment['goals']))
+								{
+									foreach($experiment['goals'] as $goal)
+									{
+									?>
+									<th>
+										<?php 
+											if(!empty($entrances[$goal]))
+												echo $entrances[$goal];
+										?>
+									</th>
+									<th>
+										<?php 
+											if(!empty($entrances[$goal]))
+												echo round((intval($entrances[$goal])/intval($entrances['entrances']))*100, 2) . "%";
+										?>
+									</th>
+									<?php
+									}
+								}
+							?>
+							<td>
+								<?php
+									$revenue = $wpdb->get_var("SELECT SUM(total) FROM $wpdb->pmpro_membership_orders WHERE status NOT IN('refunded', 'review', 'token', 'error') AND notes LIKE '%Experiment (" . $experiment['name'] . "): " . $url . "%'");
+									echo pmpro_formatPrice($revenue);
+								?>
+							</td>
+						</tr>
+					<?php } ?>
+				</tbody>
+				</table>
+			<?php		
+		}
 	}
 ?>
+
 <hr />
+
+<p>Need to reset all stats? Click here to <a href="admin.php?page=pmpro-reports&report=pmproex&resetall=<?php echo wp_create_nonce("pmpro-experiments-resetall");?>">reset all experiment stats</a>.</p>
+
 <?php
 }
