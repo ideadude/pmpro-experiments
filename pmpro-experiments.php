@@ -3,7 +3,7 @@
 Plugin Name: PMPro Experiments
 Plugin URI: http://www.paidmembershipspro.com/wp/pmpro-experiments/
 Description: Run Experiments and A/B tests with PMPro
-Version: .1
+Version: .2
 Author: Stranger Studios
 Author URI: http://www.strangerstudios.com
 */
@@ -25,6 +25,7 @@ Author URI: http://www.strangerstudios.com
 	We'll eventually put these into a settings page, possibly using CPTs, but for now
 	we define them in a global var.
 */
+/*
 global $pmpro_experiments;
 $pmpro_experiments = array(
 	1 => array(
@@ -37,7 +38,7 @@ $pmpro_experiments = array(
 			'membership-checkout',
 			'membership-confirmation',
 		),
-		'redirect' => false,		//set to false if you don't want to redirect and just reference the URL/value
+		'redirect' => 'JS',		//set to false if you don't want to redirect and just reference the URL/valuej, set to JS to redirect via JS, true to redirect via PHP
 		'status' => 'active',		//set to inactive to disable
 		'copy' => 'Pricing_1',//if experiment 'Frontpage_1' has a value, copy it
 	),
@@ -56,6 +57,7 @@ $pmpro_experiments = array(
 		'copy' => 'Frontpage_1',//if experiment 'Frontpage_1' has a value, copy it
 	)
 );
+*/
 
 /*
 	Just returning global for now, but will eventually pull these from options/etc
@@ -96,6 +98,27 @@ function pmproex_getExperimentDescription( $pmpro_experiments_name )
 }
 
 /*
+	Enqueue JS to redirect and track views
+*/
+function pmproex_setupJS($experiment, $goal = false)
+{
+	//register
+	wp_register_script('pmproex', plugin_dir_url( __FILE__ ) . 'js/pmpro-experiments.js');
+	
+	//get values
+	$vars = array(
+		'experiment' => $experiment,
+		'ajaxurl' => admin_url('admin-ajax.php'),
+		'timeout' => apply_filters("pmpro_ajax_timeout", 5000, "pmpro-experiment"),
+	);
+	if($goal)
+		$vars['goal'] = $goal;
+	wp_localize_script('pmproex', 'pmproex', $vars);
+	//enqueue
+	wp_enqueue_script('pmproex', NULL, array('jquery'), '.1');
+}
+
+/*
 	Track views on entrances and URLs
 */
 function pmproex_track($experiment, $url, $goal = NULL)
@@ -131,12 +154,29 @@ function pmproex_track($experiment, $url, $goal = NULL)
 }
 
 /*
+	AJAX service for tracking via JS
+*/
+function wp_ajax_pmproex_track() 
+{	
+	if(!empty($_REQUEST['experiment']))
+	{
+		if($_REQUEST['goal'] === 'false')
+			$_REQUEST['goal'] = false;
+		pmproex_track($_REQUEST['experiment'], $_REQUEST['url'], $_REQUEST['goal']);
+	}
+
+	exit;
+}
+add_action( 'wp_ajax_nopriv_pmproex_track', 'wp_ajax_pmproex_track' );
+add_action( 'wp_ajax_pmproex_track', 'wp_ajax_pmproex_track' );
+
+/*
 	When visiting an entrance page, redirect to one of the redirect URLs randomly
 */
 function pmproex_template_redirect()
 {
 	$experiments = pmproex_getExperiments();
-
+	
 	//no experiments?
 	if(empty($experiments))
 		return;
@@ -151,11 +191,16 @@ function pmproex_template_redirect()
 				//check session cookie
 				if(!empty($_COOKIE['pmpro_experiment_' . $experiment['name']]))					
 				{
-					if(!isset($experiment['redirect']) || $experiment['redirect'] !== false)
+					if(!empty($experiment['redirect']) && $experiment['redirect'] === 'JS')
+					{
+						pmproex_setupJS($experiment);
+						return;
+					}
+					elseif(!isset($experiment['redirect']) || $experiment['redirect'] !== false)
 					{
 						wp_redirect($_COOKIE['pmpro_experiment_' . $experiment['name']]);
 						exit;
-					}
+					}					
 				}
 				elseif(!empty($experiment['copy']) && !empty($_COOKIE['pmpro_experiment_' . $experiment['copy']]))
 				{
@@ -171,8 +216,13 @@ function pmproex_template_redirect()
 					//set cookie for now if we don't redirect
 					$_COOKIE['pmpro_experiment_' . $experiment['name']] = $url;
 	
-					//redirect					
-					if(!isset($experiment['redirect']) || $experiment['redirect'] !== false)
+					//redirect
+					if(!empty($experiment['redirect']) && $experiment['redirect'] === 'JS')
+					{
+						pmproex_setupJS($experiment);
+						return;
+					}					
+					elseif(!isset($experiment['redirect']) || $experiment['redirect'] !== false)
 					{
 						wp_redirect($url);
 						exit;
@@ -194,7 +244,12 @@ function pmproex_template_redirect()
 					$_COOKIE['pmpro_experiment_' . $experiment['name']] = $url;
 	
 					//redirect					
-					if(!isset($experiment['redirect']) || $experiment['redirect'] !== false)
+					if(!empty($experiment['redirect']) && $experiment['redirect'] === 'JS')
+					{
+						pmproex_setupJS($experiment);
+						return;
+					}
+					elseif(!isset($experiment['redirect']) || $experiment['redirect'] !== false)
 					{
 						wp_redirect($url);
 						exit;
@@ -211,6 +266,10 @@ function pmproex_template_redirect()
 					{
 						if(is_page($goal))
 						{
+							//track by JS as well
+							if(!empty($experiment['redirect']) && $experiment['redirect'] === 'JS')
+								pmproex_setupJS($experiment, $goal);
+							
 							if(empty($_COOKIE['pmpro_experiment_goal_' . $experiment['name'] . "_" . $goal]))
 							{
 								//get url
@@ -371,7 +430,10 @@ function pmpro_report_pmproex_page()
 							</td>
 							<td>
 								<?php
-									echo round((intval($conversions)/intval($entrances['entrances']))*100, 2) . "%";
+									if(intval($entrances['entrances']) > 0)
+										echo round((intval($conversions)/intval($entrances['entrances']))*100, 2) . "%";
+									else
+										echo "0%";
 								?>
 							</td>
 							<?php
