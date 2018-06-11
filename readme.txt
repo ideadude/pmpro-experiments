@@ -2,7 +2,7 @@
 Contributors: strangerstudios
 Tags: paid memberships pro, ab testing, experiments
 Requires at least: 3.5
-Tested up to: 4.4.2
+Tested up to: 4.9.6
 Stable tag: .2
 
 Setup experiments to randomize which page users are brought to and track which converts better with Paid Memberships Pro.
